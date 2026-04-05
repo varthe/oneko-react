@@ -4,7 +4,7 @@
 
 ### Installation
 
-`npm install oneko-react`
+`npm install @varthe/oneko-react`
 
 ### Usage example
 
