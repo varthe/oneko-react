@@ -1,6 +1,6 @@
 {
-  "name": "oneko-react",
-  "version": "1.0.0",
+  "name": "@varthe/oneko-react",
+  "version": "1.0.1",
   "description": "Oneko as a React component",
   "homepage": "https://github.com/varthe/oneko-react#readme",
   "bugs": {
@@ -13,9 +13,13 @@
   "license": "MIT",
   "author": "",
   "type": "commonjs",
-  "main": "oneko-ie6.js",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.es.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "vite build"
+    "build": "vite build && cp oneko.gif dist/"
   },
   "dependencies": {
     "react": "^19.2.4",
