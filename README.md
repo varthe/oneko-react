@@ -9,7 +9,7 @@
 ### Usage example
 
 ```js
-import { Oneko } from "oneko-react"
+import { Oneko } from "@varthe/oneko-react"
 
 export const MyComponent = () => {
   return (
