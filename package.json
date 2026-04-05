@@ -2,13 +2,13 @@
   "name": "oneko-react",
   "version": "1.0.0",
   "description": "Oneko as a React component",
-  "homepage": "https://github.com/varthe/oneko.js#readme",
+  "homepage": "https://github.com/varthe/oneko-react#readme",
   "bugs": {
-    "url": "https://github.com/varthe/oneko.js/issues"
+    "url": "https://github.com/varthe/oneko-react/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/varthe/oneko.js.git"
+    "url": "git+https://github.com/varthe/oneko-react.git"
   },
   "license": "MIT",
   "author": "",
