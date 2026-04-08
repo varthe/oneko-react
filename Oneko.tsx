@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react"
-import { Fragment } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 
 const SPRITE_SETS: Record<string, [number, number][]> = {
   idle: [[-3, -3]],
@@ -64,257 +63,223 @@ const SPRITE_SETS: Record<string, [number, number][]> = {
   ],
 }
 
-type OnekoProps = {
-  offsetX?: number
+interface OnekoProps {
   speed?: number
   sleepAfter?: number
   idleAfter?: number
+  wakeOutOfView?: boolean
+  className?: string
+  style?: React.CSSProperties
 }
 
-export default function Oneko({ offsetX = 0, speed = 10, sleepAfter = 10000, idleAfter = 5000 }: OnekoProps) {
-  const anchorRef = useRef<HTMLSpanElement>(null)
+export const Oneko: React.FC<OnekoProps> = ({ speed = 10, sleepAfter = 10000, idleAfter = 5000, wakeOutOfView = false, className = "", style = {} }) => {
+  const [isChasing, setIsChasing] = useState(false)
   const nekoRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const internal = useRef({
+    nekoX: 0,
+    nekoY: 0,
+    asleepX: 0,
+    asleepY: 0,
+    mouseX: 0,
+    mouseY: 0,
+    frameCount: 0,
+    idleTime: 0,
+    idleAnimationFrame: 0,
+    lastCatMoveTime: Date.now(),
+    isYawning: false,
+    idleAnimation: null as string | null,
+    hasPlayedIdle: false,
+    manualStop: false,
+  })
+
+  const setSprite = useCallback((name: string, frame: number) => {
+    if (!nekoRef.current) return
+    const sprites = SPRITE_SETS[name] || SPRITE_SETS.idle
+    const [x, y] = sprites[frame % sprites.length]
+    nekoRef.current.style.backgroundPosition = `${x * 32}px ${y * 32}px`
+  }, [])
+
+  const toggleState = useCallback((toSleep: boolean, isManual = false) => {
+    if (!toSleep) {
+      const rect = nekoRef.current?.getBoundingClientRect()
+      if (rect) {
+        internal.current.nekoX = rect.left + rect.width / 2
+        internal.current.nekoY = rect.top + rect.height / 2
+      }
+      internal.current.idleTime = 10
+      internal.current.lastCatMoveTime = Date.now()
+      internal.current.hasPlayedIdle = false
+      internal.current.manualStop = false
+      setIsChasing(true)
+    } else {
+      if (internal.current.isYawning) return
+      internal.current.isYawning = true
+      internal.current.manualStop = isManual
+
+      setTimeout(() => {
+        if (nekoRef.current && containerRef.current) {
+          const catRect = nekoRef.current.getBoundingClientRect()
+          const parentRect = containerRef.current.getBoundingClientRect()
+          internal.current.asleepX = catRect.left - parentRect.left
+          internal.current.asleepY = catRect.top - parentRect.top
+        }
+        internal.current.isYawning = false
+        internal.current.idleAnimation = null
+        setIsChasing(false)
+      }, 700)
+    }
+  }, [])
 
   useEffect(() => {
-    const isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches === true
-    if (isReducedMotion) return
+    if (!wakeOutOfView || isChasing) return
 
-    const nekoEl = nekoRef.current
-    if (!nekoEl) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting && !internal.current.manualStop) {
+          toggleState(false)
+        }
+      },
+      { threshold: 0 },
+    )
 
-    const anchor = anchorRef.current
-    const rect = anchor?.getBoundingClientRect()
-    let nekoPosX = (rect ? rect.left + rect.width / 2 : 32) + offsetX
-    let nekoPosY = rect ? rect.top + rect.height / 2 : 32
-    let mousePosX = 0
-    let mousePosY = 0
-    let frameCount = 0
-    let idleTime = 200
-    let idleAnimation: string | null = "sleeping"
-    let idleAnimationFrame = 100
-    let lastFrameTimestamp: number | undefined
-    let rafId: number
-
-    nekoEl.style.left = `${nekoPosX - 16}px`
-    nekoEl.style.top = `${nekoPosY - 16}px`
-
-    function setSprite(name: string, frame: number) {
-      const sprites = SPRITE_SETS[name]
-      const sprite = sprites[frame % sprites.length]
-      nekoEl!.style.backgroundPosition = `${sprite[0] * 32}px ${sprite[1] * 32}px`
+    if (containerRef.current) {
+      observer.observe(containerRef.current)
     }
 
-    function resetIdleAnimation() {
-      idleAnimation = null
-      idleAnimationFrame = 0
-    }
+    return () => observer.disconnect()
+  }, [wakeOutOfView, isChasing, toggleState])
 
-    function idle() {
-      idleTime += 1
-
-      if (idleAnimation === null && !hasIdled && Date.now() - lastMouseMoveTime > idleAfter) {
-        const wallOptions: string[] = []
-        if (mousePosX < 64) wallOptions.push("scratchWallW")
-        if (mousePosY < 64) wallOptions.push("scratchWallN")
-        if (mousePosX > window.innerWidth - 64) wallOptions.push("scratchWallE")
-        if (mousePosY > window.innerHeight - 64) wallOptions.push("scratchWallS")
-        const available = wallOptions.length > 0 ? wallOptions : ["scratchSelf"]
-        idleAnimation = available[Math.floor(Math.random() * available.length)]
-        hasIdled = true
-      }
-
-      switch (idleAnimation) {
-        case "sleeping":
-          if (idleAnimationFrame < 8) {
-            setSprite("tired", 0)
-            break
-          }
-          setSprite("sleeping", Math.floor(idleAnimationFrame / 4))
-          if (idleAnimationFrame > 192) resetIdleAnimation()
-          break
-        case "scratchWallN":
-        case "scratchWallS":
-        case "scratchWallE":
-        case "scratchWallW":
-        case "scratchSelf":
-          setSprite(idleAnimation, idleAnimationFrame)
-          if (idleAnimationFrame > 9) resetIdleAnimation()
-          break
-        default:
-          setSprite("idle", 0)
-          return
-      }
-      idleAnimationFrame += 1
-    }
-
-    function frame() {
-      frameCount += 1
-      const diffX = nekoPosX - mousePosX
-      const diffY = nekoPosY - mousePosY
-      const distance = Math.sqrt(diffX ** 2 + diffY ** 2)
-
-      if (distance < speed || distance < 48) {
-        idle()
+  const handleLogic = useCallback(
+    (timestamp: number) => {
+      if (internal.current.isYawning) {
+        setSprite("tired", 0)
         return
       }
 
-      idleAnimation = null
-      idleAnimationFrame = 0
-      hasIdled = false
+      if (!isChasing) {
+        setSprite("sleeping", Math.floor(timestamp / 500))
+        return
+      }
 
-      if (idleTime > 1) {
+      const { mouseX, mouseY, nekoX, nekoY } = internal.current
+      const diffX = nekoX - mouseX
+      const diffY = nekoY - mouseY
+      const distance = Math.sqrt(diffX ** 2 + diffY ** 2)
+
+      if (distance < speed || distance < 48) {
+        const timeSinceStopped = Date.now() - internal.current.lastCatMoveTime
+
+        if (timeSinceStopped > sleepAfter) {
+          toggleState(true, false)
+          return
+        }
+
+        if (timeSinceStopped > idleAfter && !internal.current.hasPlayedIdle && !internal.current.idleAnimation) {
+          const walls = []
+          if (mouseX < 64) walls.push("scratchWallW")
+          if (mouseY < 64) walls.push("scratchWallN")
+          if (mouseX > window.innerWidth - 64) walls.push("scratchWallE")
+          if (mouseY > window.innerHeight - 64) walls.push("scratchWallS")
+          internal.current.idleAnimation = walls.length ? walls[Math.floor(Math.random() * walls.length)] : "scratchSelf"
+          internal.current.idleAnimationFrame = 0
+        }
+
+        if (internal.current.idleAnimation) {
+          setSprite(internal.current.idleAnimation, internal.current.idleAnimationFrame++)
+          if (internal.current.idleAnimationFrame > 10) {
+            internal.current.idleAnimation = null
+            internal.current.hasPlayedIdle = true
+          }
+        } else {
+          setSprite("idle", 0)
+        }
+        return
+      }
+
+      internal.current.lastCatMoveTime = Date.now()
+      internal.current.hasPlayedIdle = false
+
+      if (internal.current.idleTime > 0) {
         setSprite("alert", 0)
-        idleTime = Math.min(idleTime, 7)
-        idleTime -= 1
+        internal.current.idleTime--
         return
       }
 
       let direction = ""
-      direction += diffY / distance > 0.5 ? "N" : ""
-      direction += diffY / distance < -0.5 ? "S" : ""
-      direction += diffX / distance > 0.5 ? "W" : ""
-      direction += diffX / distance < -0.5 ? "E" : ""
-      setSprite(direction, frameCount)
+      direction += diffY / distance > 0.5 ? "N" : diffY / distance < -0.5 ? "S" : ""
+      direction += diffX / distance > 0.5 ? "W" : diffX / distance < -0.5 ? "E" : ""
+      setSprite(direction || "S", internal.current.frameCount++)
 
-      nekoPosX -= (diffX / distance) * speed
-      nekoPosY -= (diffY / distance) * speed
-      nekoPosX = Math.min(Math.max(16, nekoPosX), window.innerWidth - 16)
-      nekoPosY = Math.min(Math.max(16, nekoPosY), window.innerHeight - 16)
+      internal.current.nekoX -= (diffX / distance) * speed
+      internal.current.nekoY -= (diffY / distance) * speed
+      internal.current.nekoX = Math.min(Math.max(16, internal.current.nekoX), window.innerWidth - 16)
+      internal.current.nekoY = Math.min(Math.max(16, internal.current.nekoY), window.innerHeight - 16)
 
-      nekoEl!.style.left = `${nekoPosX - 16}px`
-      nekoEl!.style.top = `${nekoPosY - 16}px`
-    }
-
-    let lastMouseMoveTime = 0
-    let hasIdled = false
-    let sleepFrame = 0
-    let lastSleepTimestamp: number | undefined
-    let sleepRafId: number
-    let yawnTimeoutId: number
-    let isSleeping = true
-
-    function onSleepFrame(timestamp: number) {
-      if (!lastSleepTimestamp) lastSleepTimestamp = timestamp
-      if (timestamp - lastSleepTimestamp > 600) {
-        lastSleepTimestamp = timestamp
-        setSprite("sleeping", sleepFrame)
-        sleepFrame += 1
+      if (nekoRef.current) {
+        nekoRef.current.style.left = `${internal.current.nekoX - 16}px`
+        nekoRef.current.style.top = `${internal.current.nekoY - 16}px`
       }
-      sleepRafId = window.requestAnimationFrame(onSleepFrame)
-    }
+    },
+    [isChasing, speed, idleAfter, sleepAfter, setSprite, toggleState],
+  )
 
-    function wake(x: number, y: number, alert = false) {
-      window.cancelAnimationFrame(sleepRafId)
-      window.clearTimeout(yawnTimeoutId)
-      isSleeping = false
-      mousePosX = x
-      mousePosY = y
-      lastMouseMoveTime = Date.now()
-      idleTime = alert ? 7 : 0
-      idleAnimation = null
-      idleAnimationFrame = 0
-      hasIdled = false
-      lastFrameTimestamp = undefined
-      nekoEl!.style.pointerEvents = "none"
-      nekoEl!.style.cursor = "default"
-      document.addEventListener("mousemove", onMouseMove)
-      rafId = window.requestAnimationFrame(onAnimationFrameWithSleepCheck)
-    }
-
-    function onWake(event: MouseEvent) {
-      nekoEl!.removeEventListener("click", onWake)
-      wake(event.clientX, event.clientY)
-    }
-
-    function onAutoWake(event: MouseEvent) {
-      document.removeEventListener("mousemove", onAutoWake)
-      wake(event.clientX, event.clientY, true)
-    }
-
-    function goToSleep() {
-      isSleeping = true
-      window.cancelAnimationFrame(rafId)
-      document.removeEventListener("mousemove", onMouseMove)
-      setSprite("tired", 0)
-      yawnTimeoutId = window.setTimeout(() => {
-        sleepFrame = 0
-        lastSleepTimestamp = undefined
-        sleepRafId = window.requestAnimationFrame(onSleepFrame)
-        document.addEventListener("mousemove", onAutoWake)
-      }, 1000)
-    }
-
-    function repositionToAnchor() {
-      if (!isSleeping || !anchor) return
-      const newRect = anchor.getBoundingClientRect()
-      nekoPosX = newRect.left + newRect.width / 2 + offsetX
-      nekoPosY = newRect.top + newRect.height / 2
-      nekoEl!.style.left = `${nekoPosX - 16}px`
-      nekoEl!.style.top = `${nekoPosY - 16}px`
-    }
-
-    function onResize() {
-      repositionToAnchor()
-    }
-
-    function onMouseMove(event: MouseEvent) {
-      mousePosX = event.clientX
-      mousePosY = event.clientY
-      lastMouseMoveTime = Date.now()
-    }
-
-    function onAnimationFrameWithSleepCheck(timestamp: number) {
-      if (Date.now() - lastMouseMoveTime > sleepAfter && idleAnimation === null) {
-        goToSleep()
-        return
+  useEffect(() => {
+    let rafId: number
+    let lastTimestamp = 0
+    const loop = (timestamp: number) => {
+      if (timestamp - lastTimestamp > 100) {
+        handleLogic(timestamp)
+        lastTimestamp = timestamp
       }
-      if (!lastFrameTimestamp) lastFrameTimestamp = timestamp
-      if (timestamp - lastFrameTimestamp > 100) {
-        lastFrameTimestamp = timestamp
-        frame()
-      }
-      rafId = window.requestAnimationFrame(onAnimationFrameWithSleepCheck)
+      rafId = requestAnimationFrame(loop)
     }
+    rafId = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(rafId)
+  }, [handleLogic])
 
-    // Set sleeping sprite immediately to avoid flash
-    setSprite("sleeping", 0)
-    nekoEl.style.pointerEvents = "auto"
-    nekoEl.style.cursor = "pointer"
-    sleepRafId = window.requestAnimationFrame(onSleepFrame)
-    nekoEl.addEventListener("click", onWake)
-    window.addEventListener("resize", onResize)
-    if (document.readyState !== "complete") {
-      window.addEventListener("load", repositionToAnchor)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      internal.current.mouseX = e.clientX
+      internal.current.mouseY = e.clientY
     }
-
-    return () => {
-      window.cancelAnimationFrame(rafId)
-      window.cancelAnimationFrame(sleepRafId)
-      window.clearTimeout(yawnTimeoutId)
-      document.removeEventListener("mousemove", onMouseMove)
-      document.removeEventListener("mousemove", onAutoWake)
-      nekoEl.removeEventListener("click", onWake)
-      window.removeEventListener("resize", onResize)
-      window.removeEventListener("load", repositionToAnchor)
-    }
-  }, [anchorRef])
+    window.addEventListener("mousemove", onMove)
+    return () => window.removeEventListener("mousemove", onMove)
+  }, [])
 
   return (
-    <Fragment>
-      <span ref={anchorRef} aria-hidden="true" style={{ display: "inline-block", width: 0, height: 0 }} />
+    <div
+      ref={containerRef}
+      className={`oneko-container ${className}`}
+      style={{
+        position: "relative",
+        display: "inline-block",
+        width: 32,
+        height: 32,
+        verticalAlign: "middle",
+        ...style,
+      }}
+    >
       <div
         ref={nekoRef}
         aria-hidden="true"
+        onClick={() => toggleState(isChasing, true)}
         style={{
           width: 32,
           height: 32,
-          position: "fixed",
-          pointerEvents: "none",
+          position: isChasing ? "fixed" : "absolute",
+          backgroundImage: "url('/oneko.gif')",
           imageRendering: "pixelated",
-          zIndex: 2147483647,
-          backgroundImage: "url(./oneko.gif)",
+          cursor: "pointer",
+          zIndex: 9999,
+          left: isChasing ? `${internal.current.nekoX - 16}px` : `${internal.current.asleepX}px`,
+          top: isChasing ? `${internal.current.nekoY - 16}px` : `${internal.current.asleepY}px`,
+          pointerEvents: "auto",
         }}
       />
-    </Fragment>
+    </div>
   )
 }
+
+export default Oneko
